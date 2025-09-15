@@ -1,0 +1,5 @@
+
+{
+  "name": "Product Color Viewer",
+  "description": "An application to search for products by article number and view their available color variants. Includes an admin panel to manage products and upload/delete color images, using Supabase as the backend."
+}
