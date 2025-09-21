@@ -35,6 +35,23 @@ CREATE TABLE public.colors (
 -- USING expression: true
 */
 
+/*
+-- CATEGORY SUPPORT (shirts, jeans, trousers)
+
+-- 1) Add category column to articles (nullable; client treats null as 'shirts')
+ALTER TABLE public.articles
+ADD COLUMN IF NOT EXISTS category text CHECK (category IN ('shirts','jeans','trousers'));
+
+-- 2) Optional: Backfill null categories to 'shirts' to make data explicit
+UPDATE public.articles
+SET category = 'shirts'
+WHERE category IS NULL;
+
+-- 3) Optional: Make category NOT NULL with default (run after backfill)
+-- ALTER TABLE public.articles ALTER COLUMN category SET DEFAULT 'shirts';
+-- ALTER TABLE public.articles ALTER COLUMN category SET NOT NULL;
+*/
+
 // 4. Set up your credentials using environment variables.
 // Make sure to create a .env.local file with your Supabase credentials:
 // VITE_SUPABASE_URL=your_supabase_url

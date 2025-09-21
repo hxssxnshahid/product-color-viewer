@@ -14,6 +14,7 @@ const ColorGalleryModal: React.FC<ColorGalleryModalProps> = ({ article, onClose 
     const [colors, setColors] = useState<Color[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [fullscreenUrl, setFullscreenUrl] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchColors = async () => {
@@ -37,7 +38,22 @@ const ColorGalleryModal: React.FC<ColorGalleryModalProps> = ({ article, onClose 
         fetchColors();
     }, [article.id]);
 
+    useEffect(() => {
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                if (fullscreenUrl) {
+                    setFullscreenUrl(null);
+                } else {
+                    onClose();
+                }
+            }
+        };
+        window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, [fullscreenUrl, onClose]);
+
     return (
+        <>
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex justify-center items-center z-50 p-4" onClick={onClose}>
             <div className="bg-gradient-to-br from-gray-900/90 to-gray-800/90 backdrop-blur-lg rounded-2xl shadow-2xl w-full max-w-6xl h-full max-h-[90vh] flex flex-col border border-purple-500/30 overflow-hidden" onClick={(e) => e.stopPropagation()}>
                 <header className="flex justify-between items-center p-6 border-b border-purple-500/30 bg-gradient-to-r from-purple-900/20 to-cyan-900/20">
@@ -57,11 +73,18 @@ const ColorGalleryModal: React.FC<ColorGalleryModalProps> = ({ article, onClose 
                     ) : colors.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                             {colors.map((color) => (
-                                <div key={color.id} className="group relative aspect-w-1 aspect-h-1 bg-gradient-to-br from-gray-800/80 to-gray-700/80 rounded-xl overflow-hidden shadow-lg hover:shadow-2xl border border-purple-500/20 hover:border-purple-400/40 transition-all duration-300 transform hover:-translate-y-1">
-                                    <img src={color.image_url} alt={`Color for ${article.article_number}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                                    <div className="absolute inset-0 bg-gradient-to-br from-purple-500/20 to-cyan-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                                </div>
+                                <button
+                                    key={color.id}
+                                    onClick={() => setFullscreenUrl(color.image_url)}
+                                    className="relative aspect-w-1 aspect-h-1 bg-gradient-to-br from-gray-800/80 to-gray-700/80 rounded-xl overflow-hidden shadow-lg border border-purple-500/20 focus:outline-none focus:ring-4 focus:ring-purple-500/25"
+                                >
+                                    <img
+                                        src={color.image_url}
+                                        alt={`Color for ${article.article_number}`}
+                                        className="w-full h-full object-cover"
+                                    />
+                                    <span className="absolute bottom-2 right-2 text-xs bg-black/60 text-white px-2 py-1 rounded-md">Click to view</span>
+                                </button>
                             ))}
                         </div>
                     ) : (
@@ -72,6 +95,15 @@ const ColorGalleryModal: React.FC<ColorGalleryModalProps> = ({ article, onClose 
                 </div>
             </div>
         </div>
+        {fullscreenUrl && (
+            <div className="fixed inset-0 z-[60] bg-black/95 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setFullscreenUrl(null)}>
+                <button onClick={() => setFullscreenUrl(null)} className="absolute top-4 right-4 p-3 rounded-full hover:bg-white/10 text-white" aria-label="Close full-screen">
+                    <CloseIcon />
+                </button>
+                <img src={fullscreenUrl} alt="Full screen color" className="max-w-full max-h-full object-contain" />
+            </div>
+        )}
+        </>
     );
 };
 

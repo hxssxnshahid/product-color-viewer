@@ -20,9 +20,17 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
     const [loading, setLoading] = useState<{ [key: string]: boolean }>({});
     const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [newArticleCategory, setNewArticleCategory] = useState<'shirts' | 'jeans' | 'trousers'>('shirts');
+    const [adminCategoryFilter, setAdminCategoryFilter] = useState<'all' | 'shirts' | 'jeans' | 'trousers'>('all');
     
     // Use the search hook to eliminate code duplication
     const { searchQuery, filteredArticles, handleSearch } = useSearch(articles);
+    
+    // Apply category filter to search results
+    const adminFilteredArticles = filteredArticles.filter(article => {
+        if (adminCategoryFilter === 'all') return true;
+        return (article.category ?? 'shirts') === adminCategoryFilter;
+    });
 
     useEffect(() => {
         if (selectedArticle) {
@@ -63,12 +71,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
         e.preventDefault();
         if (!newArticleNumber.trim()) return;
         setLoading(prev => ({...prev, addArticle: true}));
-        const { error } = await supabase.from('articles').insert({ article_number: newArticleNumber.trim() });
+        const { error } = await supabase.from('articles').insert({ 
+            article_number: newArticleNumber.trim(),
+            category: newArticleCategory
+        });
         if (error) {
             showNotification('error', `Failed to add article: ${error.message}`);
         } else {
             showNotification('success', `Article "${newArticleNumber}" added successfully.`);
             setNewArticleNumber('');
+            setNewArticleCategory('shirts');
             refreshArticles();
         }
         setLoading(prev => ({...prev, addArticle: false}));
@@ -167,7 +179,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
             )}
             <div className="bg-gradient-to-br from-gray-800/80 to-gray-700/80 p-6 rounded-xl border border-purple-500/30 shadow-lg backdrop-blur-sm">
                 <h2 className="text-2xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">Add New Article</h2>
-                <form onSubmit={handleAddArticle} className="flex items-center gap-4">
+                <form onSubmit={handleAddArticle} className="flex flex-col md:flex-row items-stretch md:items-center gap-4">
                     <input
                         type="text"
                         value={newArticleNumber}
@@ -175,6 +187,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
                         placeholder="Enter new article number"
                         className="flex-grow px-4 py-3 bg-gradient-to-r from-gray-700/80 to-gray-600/80 border border-purple-500/30 rounded-lg focus:outline-none focus:ring-4 focus:ring-purple-500/25 focus:border-purple-400 transition-all duration-300 text-white placeholder-gray-400 backdrop-blur-sm"
                     />
+                    <select
+                        value={newArticleCategory}
+                        onChange={(e) => setNewArticleCategory(e.target.value as 'shirts' | 'jeans' | 'trousers')}
+                        className="px-4 py-3 bg-gray-100 text-gray-900 border border-purple-500/40 rounded-lg focus:outline-none focus:ring-4 focus:ring-purple-500/25 focus:border-purple-400 transition-all duration-300"
+                    >
+                        <option value="shirts">Shirts</option>
+                        <option value="jeans">Jeans</option>
+                        <option value="trousers">Trousers</option>
+                    </select>
                     <button type="submit" disabled={loading['addArticle']} className="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-purple-600 to-cyan-600 rounded-lg hover:from-purple-700 hover:to-cyan-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed transition-all duration-300 transform hover:scale-105 shadow-lg">
                         {loading['addArticle'] ? <Spinner small /> : <PlusIcon />}<span className="ml-2">Add</span>
                     </button>
@@ -184,7 +205,17 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
             <div className="grid md:grid-cols-3 gap-8">
                 <div className="md:col-span-1 bg-gradient-to-br from-gray-800/80 to-gray-700/80 p-6 rounded-xl border border-purple-500/30 shadow-lg backdrop-blur-sm">
                     <h2 className="text-2xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">Manage Articles</h2>
-                    <div className="mb-4">
+                    <div className="mb-4 space-y-3">
+                        <select
+                            value={adminCategoryFilter}
+                            onChange={(e) => setAdminCategoryFilter(e.target.value as 'all' | 'shirts' | 'jeans' | 'trousers')}
+                            className="w-full px-4 py-3 bg-gray-100 text-gray-900 border border-purple-500/40 rounded-lg focus:outline-none focus:ring-4 focus:ring-purple-500/25 focus:border-purple-400 transition-all duration-300 text-sm"
+                        >
+                            <option value="all">All Categories</option>
+                            <option value="shirts">Shirts</option>
+                            <option value="jeans">Jeans</option>
+                            <option value="trousers">Trousers</option>
+                        </select>
                         <input
                             type="text"
                             placeholder="Search articles..."
@@ -194,7 +225,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
                         />
                     </div>
                     <ul className="space-y-2 max-h-96 overflow-y-auto">
-                       {filteredArticles.map(article => (
+                       {adminFilteredArticles.map(article => (
                            <li key={article.id} className={`group relative flex items-center p-3 rounded-lg transition-all duration-300 cursor-pointer ${selectedArticle?.id === article.id ? 'bg-gradient-to-r from-purple-900/50 to-cyan-900/50 border border-purple-500/30' : 'hover:bg-gradient-to-r hover:from-gray-700/50 hover:to-gray-600/50 border border-transparent'}`}>
                                <button 
                                    onClick={() => setSelectedArticle(article)} 
@@ -223,6 +254,33 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
                     </h2>
                     {selectedArticle ? (
                         <div>
+                             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
+                                <div className="flex items-center gap-3">
+                                    <span className="text-sm text-gray-300">Category:</span>
+                                    <select
+                                        value={(selectedArticle.category ?? 'shirts')}
+                                        onChange={async (e) => {
+                                            const newCat = e.target.value as 'shirts' | 'jeans' | 'trousers';
+                                            setLoading(prev => ({...prev, updateCategory: true}));
+                                            const { error } = await supabase.from('articles').update({ category: newCat }).eq('id', selectedArticle.id);
+                                            if (error) {
+                                                showNotification('error', `Failed to update category: ${error.message}`);
+                                            } else {
+                                                showNotification('success', 'Category updated.');
+                                                setSelectedArticle({ ...selectedArticle, category: newCat });
+                                                refreshArticles();
+                                            }
+                                            setLoading(prev => ({...prev, updateCategory: false}));
+                                        }}
+                                        disabled={loading['updateCategory']}
+                                        className="px-3 py-2 bg-gray-100 text-gray-900 border border-purple-500/40 rounded-lg focus:outline-none focus:ring-4 focus:ring-purple-500/25 focus:border-purple-400 transition-all duration-300"
+                                    >
+                                        <option value="shirts">Shirts</option>
+                                        <option value="jeans">Jeans</option>
+                                        <option value="trousers">Trousers</option>
+                                    </select>
+                                </div>
+                             </div>
                              <div className="mb-4">
                                 <label htmlFor="color-upload" className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-purple-600/80 to-cyan-600/80 text-white rounded-lg cursor-pointer hover:from-purple-700/80 hover:to-cyan-700/80 transition-all duration-300 transform hover:scale-105 shadow-lg backdrop-blur-sm border border-purple-500/30">
                                     {loading['upload'] ? <Spinner small /> : <UploadIcon />}
