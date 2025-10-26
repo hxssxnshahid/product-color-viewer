@@ -1,140 +1,112 @@
-export interface ImageCompressionOptions {
-    maxWidth?: number;
-    maxHeight?: number;
-    quality?: number;
-    maxSizeKB?: number;
+// @ts-ignore - No type definitions available
+import heic2any from 'heic2any';
+// @ts-ignore - No type definitions available
+import imageCompression from 'browser-image-compression';
+
+interface ConvertAndCompressOptions {
+    maxSizeMB?: number;
+    maxWidthOrHeight?: number;
+    useWebWorker?: boolean;
 }
 
-export class ImageUtils {
-    static async compressImage(
-        file: File, 
-        options: ImageCompressionOptions = {}
-    ): Promise<File> {
-        const {
-            maxWidth = 2500,
-            maxHeight = 2500,
-            quality = 0.92,
-            maxSizeKB = 500
-        } = options;
-
-        return new Promise((resolve, reject) => {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            const img = new Image();
-            const fileUrl = URL.createObjectURL(file);
-
-            img.onload = () => {
-                try {
-                    // Calculate new dimensions
-                    let { width, height } = img;
-                    
-                    if (width > height) {
-                        if (width > maxWidth) {
-                            height = (height * maxWidth) / width;
-                            width = maxWidth;
-                        }
-                    } else {
-                        if (height > maxHeight) {
-                            width = (width * maxHeight) / height;
-                            height = maxHeight;
-                        }
-                    }
-
-                    canvas.width = width;
-                    canvas.height = height;
-
-                    // Draw and compress
-                    if (!ctx) {
-                        URL.revokeObjectURL(fileUrl);
-                        reject(new Error('Failed to get canvas context'));
-                        return;
-                    }
-
-                    ctx.drawImage(img, 0, 0, width, height);
-                    
-                    canvas.toBlob(
-                        (blob) => {
-                            URL.revokeObjectURL(fileUrl);
-                            
-                            if (!blob) {
-                                reject(new Error('Failed to compress image'));
-                                return;
-                            }
-
-                            // Check file size
-                            const sizeKB = blob.size / 1024;
-                            if (sizeKB > maxSizeKB) {
-                                // Recursively compress with slightly lower quality (5% reduction per iteration)
-                                const newQuality = Math.max(quality - 0.05, 0.3);
-                                if (newQuality >= 0.3) {
-                                    this.compressImage(file, { ...options, quality: newQuality })
-                                        .then(resolve)
-                                        .catch(reject);
-                                } else {
-                                    reject(new Error('Image too large to compress while maintaining quality'));
-                                }
-                            } else {
-                                const compressedFile = new File([blob], file.name, {
-                                    type: 'image/jpeg',
-                                    lastModified: Date.now()
-                                });
-                                resolve(compressedFile);
-                            }
-                        },
-                        'image/jpeg',
-                        quality
-                    );
-                } catch (error) {
-                    URL.revokeObjectURL(fileUrl);
-                    reject(error instanceof Error ? error : new Error('Failed to process image'));
-                }
-            };
-
-            img.onerror = (error) => {
-                URL.revokeObjectURL(fileUrl);
-                reject(new Error('Failed to load image. Please select a valid image file.'));
-            };
+export async function convertHeicToJpeg(file: File): Promise<Blob> {
+    try {
+        const isHeic = /\.(heic|heif)$/i.test(file.name);
+        
+        if (isHeic) {
+            const convertedBlobs = await heic2any({
+                blob: file,
+                toType: 'image/jpeg',
+                quality: 0.8
+            });
             
-            img.src = fileUrl;
-        });
-    }
-
-    static validateImageFile(file: File): { valid: boolean; error?: string } {
-        const validTypes = [
-            'image/jpeg', 
-            'image/jpg', 
-            'image/png', 
-            'image/webp',
-            'image/heic',
-            'image/heif',
-            'image/avif'
-        ];
-        const maxSize = 10 * 1024 * 1024; // 10MB
-
-        // iOS sometimes doesn't provide proper MIME type, so also check file extension
-        const fileName = file.name.toLowerCase();
-        const hasValidExtension = fileName.endsWith('.jpg') || 
-                                  fileName.endsWith('.jpeg') || 
-                                  fileName.endsWith('.png') || 
-                                  fileName.endsWith('.webp') ||
-                                  fileName.endsWith('.heic') ||
-                                  fileName.endsWith('.heif') ||
-                                  fileName.endsWith('.avif');
-
-        if (!validTypes.includes(file.type) && !hasValidExtension && file.type !== '') {
-            return {
-                valid: false,
-                error: 'Please select a valid image file (JPEG, PNG, WebP, HEIC, or HEIF)'
-            };
+            const blob = Array.isArray(convertedBlobs) ? convertedBlobs[0] : convertedBlobs;
+            return blob as Blob;
         }
-
-        if (file.size > maxSize) {
-            return {
-                valid: false,
-                error: 'Image file is too large. Maximum size is 10MB'
-            };
-        }
-
-        return { valid: true };
+        
+        return file;
+    } catch (error) {
+        console.error('Error converting HEIC:', error);
+        throw new Error('Failed to convert HEIC image. Please try a different format.');
     }
 }
+
+export async function compressImage(
+    file: File,
+    options: ConvertAndCompressOptions = {}
+): Promise<File> {
+    const {
+        maxSizeMB = 2,
+        maxWidthOrHeight = 1920,
+        useWebWorker = true
+    } = options;
+
+    try {
+        const compressionOptions = {
+            maxSizeMB,
+            maxWidthOrHeight,
+            useWebWorker,
+            fileType: 'image/jpeg',
+            initialQuality: 0.8
+        };
+
+        const compressedFile = await imageCompression(file, compressionOptions);
+        return compressedFile;
+    } catch (error) {
+        console.error('Error compressing image:', error);
+        throw new Error('Failed to compress image.');
+    }
+}
+
+export async function processImage(
+    file: File,
+    options: ConvertAndCompressOptions = {}
+): Promise<File> {
+    try {
+        let processedBlob = await convertHeicToJpeg(file);
+        
+        let processedFile = file;
+        if (file.type !== processedBlob.type) {
+            processedFile = new File(
+                [processedBlob],
+                file.name.replace(/\.(heic|heif)$/i, '.jpg'),
+                { type: 'image/jpeg' }
+            );
+        }
+        
+        const compressedFile = await compressImage(processedFile, options);
+        
+        return compressedFile;
+    } catch (error) {
+        console.error('Error processing image:', error);
+        throw error;
+    }
+}
+
+export function validateImageFile(file: File): boolean {
+    const validTypes = [
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/webp',
+        'image/heic',
+        'image/heif'
+    ];
+    
+    return validTypes.includes(file.type);
+}
+
+export function getFileSizeMB(file: File): number {
+    return file.size / (1024 * 1024);
+}
+
+export function formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+}
+

@@ -1,14 +1,12 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { supabase } from '../services/supabase';
 import type { Article, Color } from '../types';
-import { useSearch } from '../hooks/useSearch';
-import { ImageUtils } from '../utils/imageUtils';
-import PlusIcon from './icons/PlusIcon';
-import TrashIcon from './icons/TrashIcon';
-import UploadIcon from './icons/UploadIcon';
+import { processImage, validateImageFile, formatFileSize } from '../utils/imageUtils';
 import Spinner from './Spinner';
-import SkeletonLoader from './SkeletonLoader';
+import UploadIcon from './icons/UploadIcon';
+import TrashIcon from './icons/TrashIcon';
+import PlusIcon from './icons/PlusIcon';
 
 interface AdminPanelProps {
     articles: Article[];
@@ -16,342 +14,410 @@ interface AdminPanelProps {
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) => {
-    const [newArticleNumber, setNewArticleNumber] = useState('');
     const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
-    const [colors, setColors] = useState<Color[]>([]);
-    const [loading, setLoading] = useState<{ [key: string]: boolean }>({});
-    const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [newArticleNumber, setNewArticleNumber] = useState('');
+    const [newArticleName, setNewArticleName] = useState('');
     const [newArticleCategory, setNewArticleCategory] = useState<'shirts' | 'jeans' | 'trousers'>('shirts');
-    const [adminCategoryFilter, setAdminCategoryFilter] = useState<'all' | 'shirts' | 'jeans' | 'trousers'>('all');
-    
-    // Use the search hook to eliminate code duplication
-    const { searchQuery, filteredArticles, handleSearch } = useSearch(articles);
-    
-    // Apply category filter to search results
-    const adminFilteredArticles = filteredArticles.filter(article => {
-        if (adminCategoryFilter === 'all') return true;
-        return (article.category ?? 'shirts') === adminCategoryFilter;
-    });
-
-    useEffect(() => {
-        if (selectedArticle) {
-            fetchColors(selectedArticle.id);
-        } else {
-            setColors([]);
-        }
-    }, [selectedArticle]);
-
-    
-    useEffect(() => {
-        if (notification) {
-            const timer = setTimeout(() => setNotification(null), 3000);
-            return () => clearTimeout(timer);
-        }
-    }, [notification]);
-
-    const showNotification = (type: 'success' | 'error', message: string) => {
-        setNotification({ type, message });
-    };
+    const [uploading, setUploading] = useState(false);
+    const [processing, setProcessing] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const [error, setError] = useState<string | null>(null);
+    const [success, setSuccess] = useState<string | null>(null);
+    const [colors, setColors] = useState<Color[]>([]);
+    const [loadingColors, setLoadingColors] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const fetchColors = async (articleId: number) => {
-        setLoading(prev => ({...prev, colors: true}));
+        setLoadingColors(true);
         const { data, error } = await supabase
             .from('colors')
             .select('*')
             .eq('article_id', articleId)
             .order('created_at', { ascending: false });
+
         if (error) {
-            showNotification('error', `Failed to fetch colors: ${error.message}`);
+            console.error('Error fetching colors:', error);
         } else {
             setColors(data || []);
         }
-        setLoading(prev => ({...prev, colors: false}));
+        setLoadingColors(false);
     };
 
-    const handleAddArticle = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!newArticleNumber.trim()) return;
-        setLoading(prev => ({...prev, addArticle: true}));
-        const { error } = await supabase.from('articles').insert({ 
-            article_number: newArticleNumber.trim(),
-            category: newArticleCategory
-        });
-        if (error) {
-            showNotification('error', `Failed to add article: ${error.message}`);
-        } else {
-            showNotification('success', `Article "${newArticleNumber}" added successfully.`);
-            setNewArticleNumber('');
-            setNewArticleCategory('shirts');
-            refreshArticles();
-        }
-        setLoading(prev => ({...prev, addArticle: false}));
-    };
-    
-    const handleDeleteArticle = async (articleId: number) => {
-        if (!window.confirm("Are you sure? This will delete the article and all its colors permanently.")) return;
-        setLoading(prev => ({...prev, [`deleteArticle-${articleId}`]: true}));
-        // 1. Get color storage paths to delete from storage
-        const { data: colorsToDelete, error: fetchError } = await supabase.from('colors').select('storage_path').eq('article_id', articleId);
-        if (fetchError) {
-             showNotification('error', `Could not fetch colors to delete: ${fetchError.message}`);
-             setLoading(prev => ({...prev, [`deleteArticle-${articleId}`]: false}));
-             return;
-        }
-
-        // 2. Delete images from storage
-        if(colorsToDelete && colorsToDelete.length > 0) {
-            const paths = colorsToDelete.map(c => c.storage_path);
-            const { error: storageError } = await supabase.storage.from('product-colors').remove(paths);
-            if(storageError) {
-                showNotification('error', `Could not delete images from storage: ${storageError.message}`);
-                // Continue to delete DB records anyway
-            }
-        }
-        
-        // 3. Delete article (and colors via cascade) from database
-        const { error: deleteError } = await supabase.from('articles').delete().eq('id', articleId);
-        if (deleteError) {
-            showNotification('error', `Failed to delete article: ${deleteError.message}`);
-        } else {
-            showNotification('success', 'Article deleted successfully.');
-            if (selectedArticle?.id === articleId) setSelectedArticle(null);
-            refreshArticles();
-        }
-        setLoading(prev => ({...prev, [`deleteArticle-${articleId}`]: false}));
+    const handleArticleSelect = (article: Article) => {
+        setSelectedArticle(article);
+        fetchColors(article.id);
+        setError(null);
+        setSuccess(null);
     };
 
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files || e.target.files.length === 0 || !selectedArticle) return;
-        const file = e.target.files[0];
-        
-        // Reset input value to allow re-uploading the same file
-        if(fileInputRef.current) fileInputRef.current.value = "";
-        
-        // Validate file using ImageUtils
-        const validation = ImageUtils.validateImageFile(file);
-        if (!validation.valid) {
-            showNotification('error', validation.error || 'Invalid file');
+    const handleAddArticle = async () => {
+        if (!newArticleNumber.trim()) {
+            setError('Article number is required');
             return;
         }
-        
+
+        setError(null);
+        setSuccess(null);
+        setProcessing(true);
+
         try {
-            // Compress image before upload - high quality with max 500KB
-            setLoading(prev => ({...prev, upload: true}));
-            
-            console.log('Starting compression for file:', file.name, file.type, file.size);
-            const compressedFile = await ImageUtils.compressImage(file, {
-                quality: 0.92,  // Start with high quality (92%)
-                maxSizeKB: 500   // Maximum file size - will auto-adjust if needed
+            const { data, error } = await supabase
+                .from('articles')
+                .insert([
+                    {
+                        article_number: newArticleNumber.trim(),
+                        name: newArticleName.trim() || null,
+                        category: newArticleCategory
+                    }
+                ])
+                .select()
+                .single();
+
+            if (error) {
+                if (error.code === '23505') {
+                    setError('Article number already exists');
+                } else {
+                    setError(`Failed to add article: ${error.message}`);
+                }
+            } else {
+                setSuccess('Article added successfully!');
+                setNewArticleNumber('');
+                setNewArticleName('');
+                setNewArticleCategory('shirts');
+                refreshArticles();
+            }
+        } catch (err) {
+            setError('An unexpected error occurred');
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || !selectedArticle) return;
+
+        setError(null);
+        setSuccess(null);
+
+        try {
+            for (let i = 0; i < files.length; i++) {
+                await uploadImage(files[i]);
+            }
+        } catch (err) {
+            console.error('Upload error:', err);
+        }
+
+        // Reset file input
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    };
+
+    const uploadImage = async (file: File) => {
+        if (!selectedArticle) return;
+
+        // Validate file
+        if (!validateImageFile(file)) {
+            setError('Invalid file type. Please upload JPEG, PNG, WebP, or HEIC images.');
+            return;
+        }
+
+        // Check file size (max 50MB before compression)
+        const maxSizeMB = 50;
+        if (file.size / (1024 * 1024) > maxSizeMB) {
+            setError(`File size exceeds ${maxSizeMB}MB. Please choose a smaller image.`);
+            return;
+        }
+
+        setUploading(true);
+        setProcessing(true);
+        setError(null);
+        setUploadProgress(0);
+
+        try {
+            // Step 1: Process image (convert HEIC and compress)
+            setUploadProgress(25);
+            const processedFile = await processImage(file, {
+                maxSizeMB: 2,
+                maxWidthOrHeight: 1920,
+                useWebWorker: true
             });
-            console.log('Compression successful, size:', compressedFile.size);
-            
-            const fileName = `${selectedArticle.article_number}-${Date.now()}.jpg`;
-            const { error: uploadError } = await supabase.storage.from('product-colors').upload(fileName, compressedFile);
+
+            // Step 2: Create unique file path
+            const timestamp = Date.now();
+            const randomId = Math.random().toString(36).substring(7);
+            const fileExt = processedFile.name.split('.').pop();
+            const fileName = `${selectedArticle.article_number}_${timestamp}_${randomId}.${fileExt}`;
+            const filePath = `${selectedArticle.id}/${fileName}`;
+
+            setUploadProgress(50);
+
+            // Step 3: Upload to Supabase storage
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('product-colors')
+                .upload(filePath, processedFile, {
+                    cacheControl: '3600',
+                    upsert: false
+                });
 
             if (uploadError) {
-                console.error('Upload error:', uploadError);
-                showNotification('error', `Upload failed: ${uploadError.message}`);
-                setLoading(prev => ({...prev, upload: false}));
-                return;
+                throw new Error(`Upload failed: ${uploadError.message}`);
             }
 
-            const { data: { publicUrl } } = supabase.storage.from('product-colors').getPublicUrl(fileName);
+            setUploadProgress(75);
 
-            const { error: insertError } = await supabase.from('colors').insert({
-                article_id: selectedArticle.id,
-                image_url: publicUrl,
-                storage_path: fileName
-            });
+            // Step 4: Get public URL
+            const { data: urlData } = supabase.storage
+                .from('product-colors')
+                .getPublicUrl(filePath);
+
+            if (!urlData) {
+                throw new Error('Failed to get public URL');
+            }
+
+            // Step 5: Save to database
+            const { error: dbError } = await supabase
+                .from('colors')
+                .insert([
+                    {
+                        article_id: selectedArticle.id,
+                        image_url: urlData.publicUrl,
+                        storage_path: filePath
+                    }
+                ]);
+
+            if (dbError) {
+                throw new Error(`Database error: ${dbError.message}`);
+            }
+
+            setUploadProgress(100);
+            setSuccess(`Successfully uploaded ${processedFile.name}!`);
             
-            if (insertError) {
-                console.error('Insert error:', insertError);
-                showNotification('error', `Failed to save color info: ${insertError.message}`);
-            } else {
-                showNotification('success', 'Color added successfully.');
-                fetchColors(selectedArticle.id);
-            }
-        } catch (error) {
-            console.error('Upload error:', error);
-            showNotification('error', `Failed to process image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            // Refresh colors list
+            await fetchColors(selectedArticle.id);
+        } catch (err) {
+            console.error('Upload error:', err);
+            setError(err instanceof Error ? err.message : 'Failed to upload image');
         } finally {
-            setLoading(prev => ({...prev, upload: false}));
+            setUploading(false);
+            setProcessing(false);
+            setUploadProgress(0);
         }
-    };
-    
-    const handleDeleteColor = async (color: Color) => {
-        if (!window.confirm("Are you sure you want to delete this color?")) return;
-        setLoading(prev => ({...prev, [`deleteColor-${color.id}`]: true}));
-        const { error: storageError } = await supabase.storage.from('product-colors').remove([color.storage_path]);
-        if (storageError) {
-            showNotification('error', `Storage deletion failed: ${storageError.message}`);
-        }
-        
-        const { error: dbError } = await supabase.from('colors').delete().eq('id', color.id);
-        if (dbError) {
-            showNotification('error', `Database deletion failed: ${dbError.message}`);
-        } else {
-            showNotification('success', 'Color deleted.');
-            setColors(colors.filter(c => c.id !== color.id));
-        }
-        setLoading(prev => ({...prev, [`deleteColor-${color.id}`]: false}));
     };
 
+    const handleDeleteColor = async (color: Color) => {
+        if (!window.confirm('Are you sure you want to delete this color?')) {
+            return;
+        }
+
+        setError(null);
+        setSuccess(null);
+
+        try {
+            // Delete from storage
+            const { error: storageError } = await supabase.storage
+                .from('product-colors')
+                .remove([color.storage_path]);
+
+            if (storageError) {
+                console.error('Storage delete error:', storageError);
+                // Continue with database deletion even if storage fails
+            }
+
+            // Delete from database (CASCADE will handle this)
+            const { error: dbError } = await supabase
+                .from('colors')
+                .delete()
+                .eq('id', color.id);
+
+            if (dbError) {
+                throw new Error(`Failed to delete: ${dbError.message}`);
+            }
+
+            setSuccess('Color deleted successfully!');
+            
+            // Refresh colors list
+            if (selectedArticle) {
+                await fetchColors(selectedArticle.id);
+            }
+        } catch (err) {
+            console.error('Delete error:', err);
+            setError(err instanceof Error ? err.message : 'Failed to delete color');
+        }
+    };
 
     return (
-        <div className="space-y-8">
-            {notification && (
-                 <div className={`p-4 rounded-md ${notification.type === 'success' ? 'bg-green-900/70 text-green-200' : 'bg-red-900/70 text-red-200'}`}>
-                    {notification.message}
-                </div>
-            )}
-            <div className="bg-gradient-to-br from-gray-800/80 to-gray-700/80 p-6 rounded-xl border border-purple-500/30 shadow-lg backdrop-blur-sm">
-                <h2 className="text-2xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">Add New Article</h2>
-                <form onSubmit={handleAddArticle} className="flex flex-col md:flex-row items-stretch md:items-center gap-4">
+        <div className="max-w-7xl mx-auto">
+            <div className="mb-8">
+                <h1 className="text-3xl md:text-4xl font-bold text-white mb-4">
+                    Admin Panel
+                </h1>
+                <p className="text-gray-400">
+                    Manage articles and upload product color images
+                </p>
+            </div>
+
+            {/* Add New Article Form */}
+            <div className="bg-gradient-to-br from-gray-800/90 to-gray-700/90 backdrop-blur-lg rounded-2xl shadow-2xl border border-purple-500/30 p-6 mb-6">
+                <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                    <PlusIcon />
+                    Add New Article
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <input
                         type="text"
+                        placeholder="Article Number *"
                         value={newArticleNumber}
                         onChange={(e) => setNewArticleNumber(e.target.value)}
-                        placeholder="Enter new article number"
-                        className="flex-grow px-4 py-3 bg-gradient-to-r from-gray-700/80 to-gray-600/80 border border-purple-500/30 rounded-lg focus:outline-none focus:ring-4 focus:ring-purple-500/25 focus:border-purple-400 transition-all duration-300 text-white placeholder-gray-400 backdrop-blur-sm"
+                        className="px-4 py-2 bg-gray-900/50 border border-purple-500/30 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                    <input
+                        type="text"
+                        placeholder="Article Name (optional)"
+                        value={newArticleName}
+                        onChange={(e) => setNewArticleName(e.target.value)}
+                        className="px-4 py-2 bg-gray-900/50 border border-purple-500/30 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
                     <select
                         value={newArticleCategory}
                         onChange={(e) => setNewArticleCategory(e.target.value as 'shirts' | 'jeans' | 'trousers')}
-                        className="px-4 py-3 bg-gray-100 text-gray-900 border border-purple-500/40 rounded-lg focus:outline-none focus:ring-4 focus:ring-purple-500/25 focus:border-purple-400 transition-all duration-300"
+                        className="px-4 py-2 bg-gray-900/50 border border-purple-500/30 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                     >
                         <option value="shirts">Shirts</option>
                         <option value="jeans">Jeans</option>
                         <option value="trousers">Trousers</option>
                     </select>
-                    <button type="submit" disabled={loading['addArticle']} className="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-purple-600 to-cyan-600 rounded-lg hover:from-purple-700 hover:to-cyan-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed transition-all duration-300 transform hover:scale-105 shadow-lg">
-                        {loading['addArticle'] ? <Spinner small /> : <PlusIcon />}<span className="ml-2">Add</span>
+                    <button
+                        onClick={handleAddArticle}
+                        disabled={processing || !newArticleNumber.trim()}
+                        className="px-6 py-2 bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg text-white font-medium transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2"
+                    >
+                        {processing ? <Spinner small /> : <PlusIcon />}
+                        Add Article
                     </button>
-                </form>
+                </div>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-8">
-                <div className="md:col-span-1 bg-gradient-to-br from-gray-800/80 to-gray-700/80 p-6 rounded-xl border border-purple-500/30 shadow-lg backdrop-blur-sm">
-                    <h2 className="text-2xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">Manage Articles</h2>
-                    <div className="mb-4 space-y-3">
-                        <select
-                            value={adminCategoryFilter}
-                            onChange={(e) => setAdminCategoryFilter(e.target.value as 'all' | 'shirts' | 'jeans' | 'trousers')}
-                            className="w-full px-4 py-3 bg-gray-100 text-gray-900 border border-purple-500/40 rounded-lg focus:outline-none focus:ring-4 focus:ring-purple-500/25 focus:border-purple-400 transition-all duration-300 text-sm"
+            {/* Messages */}
+            {(error || success) && (
+                <div className={`mb-6 p-4 rounded-lg border ${
+                    error ? 'bg-red-900/50 border-red-600/50' : 'bg-green-900/50 border-green-600/50'
+                }`}>
+                    <p className={error ? 'text-red-300' : 'text-green-300'}>
+                        {error || success}
+                    </p>
+                </div>
+            )}
+
+            {/* Articles List */}
+            <div className="bg-gradient-to-br from-gray-800/90 to-gray-700/90 backdrop-blur-lg rounded-2xl shadow-2xl border border-purple-500/30 p-6 mb-6">
+                <h2 className="text-xl font-bold text-white mb-4">Articles ({articles.length})</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    {articles.map((article) => (
+                        <button
+                            key={article.id}
+                            onClick={() => handleArticleSelect(article)}
+                            className={`p-4 bg-gradient-to-br from-gray-900/50 to-gray-800/50 rounded-xl border transition-all duration-300 transform hover:scale-105 ${
+                                selectedArticle?.id === article.id
+                                    ? 'border-purple-500 bg-purple-900/20'
+                                    : 'border-purple-500/20 hover:border-purple-500/40'
+                            }`}
                         >
-                            <option value="all">All Categories</option>
-                            <option value="shirts">Shirts</option>
-                            <option value="jeans">Jeans</option>
-                            <option value="trousers">Trousers</option>
-                        </select>
-                        <input
-                            type="text"
-                            placeholder="Search articles..."
-                            value={searchQuery}
-                            onChange={(e) => handleSearch(e.target.value)}
-                            className="w-full px-4 py-3 bg-gradient-to-r from-gray-700/80 to-gray-600/80 border border-purple-500/30 rounded-lg focus:outline-none focus:ring-4 focus:ring-purple-500/25 focus:border-purple-400 transition-all duration-300 text-white placeholder-gray-400 backdrop-blur-sm text-sm"
-                        />
-                    </div>
-                    <ul className="space-y-2 max-h-96 overflow-y-auto">
-                       {adminFilteredArticles.map(article => (
-                           <li key={article.id} className={`group relative flex items-center p-3 rounded-lg transition-all duration-300 cursor-pointer ${selectedArticle?.id === article.id ? 'bg-gradient-to-r from-purple-900/50 to-cyan-900/50 border border-purple-500/30' : 'hover:bg-gradient-to-r hover:from-gray-700/50 hover:to-gray-600/50 border border-transparent'}`}>
-                               <button 
-                                   onClick={() => setSelectedArticle(article)} 
-                                   className="text-left flex-grow font-mono pr-8"
-                               >
-                                   {article.article_number}
-                               </button>
-                               <button 
-                                   onClick={(e) => {
-                                       e.stopPropagation();
-                                       handleDeleteArticle(article.id);
-                                   }} 
-                                   disabled={loading[`deleteArticle-${article.id}`]} 
-                                   className="absolute right-2 p-2 rounded-full hover:bg-red-500/20 text-red-400 disabled:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                               >
-                                   {loading[`deleteArticle-${article.id}`] ? <Spinner small /> : <TrashIcon />}
-                               </button>
-                           </li>
-                       ))}
-                    </ul>
-                </div>
-
-                <div className="md:col-span-2 bg-gradient-to-br from-gray-800/80 to-gray-700/80 p-6 rounded-xl border border-purple-500/30 shadow-lg backdrop-blur-sm">
-                    <h2 className="text-2xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">
-                        {selectedArticle ? `Manage Colors for ${selectedArticle.article_number}` : 'Select an Article'}
-                    </h2>
-                    {selectedArticle ? (
-                        <div>
-                             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
-                                <div className="flex items-center gap-3">
-                                    <span className="text-sm text-gray-300">Category:</span>
-                                    <select
-                                        value={(selectedArticle.category ?? 'shirts')}
-                                        onChange={async (e) => {
-                                            const newCat = e.target.value as 'shirts' | 'jeans' | 'trousers';
-                                            setLoading(prev => ({...prev, updateCategory: true}));
-                                            const { error } = await supabase.from('articles').update({ category: newCat }).eq('id', selectedArticle.id);
-                                            if (error) {
-                                                showNotification('error', `Failed to update category: ${error.message}`);
-                                            } else {
-                                                showNotification('success', 'Category updated.');
-                                                setSelectedArticle({ ...selectedArticle, category: newCat });
-                                                refreshArticles();
-                                            }
-                                            setLoading(prev => ({...prev, updateCategory: false}));
-                                        }}
-                                        disabled={loading['updateCategory']}
-                                        className="px-3 py-2 bg-gray-100 text-gray-900 border border-purple-500/40 rounded-lg focus:outline-none focus:ring-4 focus:ring-purple-500/25 focus:border-purple-400 transition-all duration-300"
-                                    >
-                                        <option value="shirts">Shirts</option>
-                                        <option value="jeans">Jeans</option>
-                                        <option value="trousers">Trousers</option>
-                                    </select>
-                                </div>
-                             </div>
-                             <div className="mb-4">
-                                <label htmlFor="color-upload" className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-purple-600/80 to-cyan-600/80 text-white rounded-lg cursor-pointer hover:from-purple-700/80 hover:to-cyan-700/80 transition-all duration-300 transform hover:scale-105 shadow-lg backdrop-blur-sm border border-purple-500/30">
-                                    {loading['upload'] ? <Spinner small /> : <UploadIcon />}
-                                    <span>{loading['upload'] ? 'Uploading...' : 'Upload New Color'}</span>
-                                </label>
-                                <input id="color-upload" type="file" accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" disabled={loading['upload']} />
-                             </div>
-                             {loading['colors'] ? (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                                    <SkeletonLoader type="color" count={8} />
-                                </div>
-                             ) : (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                                    {colors.map(color => (
-                                        <div key={color.id} className="relative group aspect-w-1 aspect-h-1 rounded-lg overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
-                                            <img src={color.image_url} alt="color" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"/>
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center pointer-events-none">
-                                                <button 
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        handleDeleteColor(color);
-                                                    }} 
-                                                    disabled={loading[`deleteColor-${color.id}`]} 
-                                                    className="p-3 bg-gradient-to-r from-red-600 to-red-700 rounded-full hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 transition-all duration-300 transform hover:scale-110 shadow-lg pointer-events-auto z-10"
-                                                >
-                                                    {loading[`deleteColor-${color.id}`] ? <Spinner small/> : <TrashIcon />}
-                                                </button>
-                                            </div>
-                                            <div className="absolute inset-0 bg-gradient-to-br from-purple-500/20 to-cyan-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
-                                        </div>
-                                    ))}
-                                </div>
-                             )}
-                             {colors.length === 0 && !loading['colors'] && <p className="text-gray-400 text-center mt-4">No colors uploaded for this article yet.</p>}
-                        </div>
-                    ) : (
-                        <p className="text-gray-400">Please select an article from the list to manage its colors.</p>
-                    )}
+                            <div className="font-mono text-center text-white">{article.article_number}</div>
+                            <div className="text-xs text-gray-400 mt-1 capitalize">{article.category || 'shirts'}</div>
+                        </button>
+                    ))}
                 </div>
             </div>
+
+            {/* Upload Section for Selected Article */}
+            {selectedArticle && (
+                <div className="bg-gradient-to-br from-gray-800/90 to-gray-700/90 backdrop-blur-lg rounded-2xl shadow-2xl border border-purple-500/30 p-6">
+                    <h2 className="text-xl font-bold text-white mb-4">
+                        Upload Colors for Article: <span className="font-mono text-purple-400">{selectedArticle.article_number}</span>
+                    </h2>
+                    
+                    {/* Upload Form */}
+                    <div className="mb-6">
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif"
+                            multiple
+                            onChange={handleFileSelect}
+                            className="hidden"
+                            id="color-upload"
+                            disabled={uploading}
+                        />
+                        <label
+                            htmlFor="color-upload"
+                            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700 disabled:from-gray-600 disabled:to-gray-700 rounded-lg text-white font-medium cursor-pointer transition-all duration-300 transform hover:scale-105 disabled:cursor-not-allowed"
+                        >
+                            {uploading ? <Spinner small /> : <UploadIcon />}
+                            {uploading ? 'Processing...' : 'Upload Color Images'}
+                        </label>
+                        <p className="mt-2 text-sm text-gray-400">
+                            Supports JPEG, PNG, WebP, and HEIC formats. HEIC images will be automatically converted to JPEG and compressed.
+                        </p>
+                    </div>
+
+                    {/* Upload Progress */}
+                    {processing && uploadProgress > 0 && (
+                        <div className="mb-4">
+                            <div className="w-full bg-gray-700 rounded-full h-2.5">
+                                <div
+                                    className="bg-gradient-to-r from-purple-600 to-cyan-600 h-2.5 rounded-full transition-all duration-300"
+                                    style={{ width: `${uploadProgress}%` }}
+                                />
+                            </div>
+                            <p className="text-sm text-gray-400 mt-1">Uploading... {uploadProgress}%</p>
+                        </div>
+                    )}
+
+                    {/* Colors Grid */}
+                    <div className="mt-6">
+                        <h3 className="text-lg font-bold text-white mb-4">Existing Colors ({colors.length})</h3>
+                        {loadingColors ? (
+                            <div className="text-center py-8">
+                                <Spinner />
+                            </div>
+                        ) : colors.length > 0 ? (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                                {colors.map((color) => (
+                                    <div
+                                        key={color.id}
+                                        className="relative group aspect-square rounded-xl overflow-hidden border border-purple-500/20 hover:border-red-500/50 transition-all duration-300"
+                                    >
+                                        <img
+                                            src={color.image_url}
+                                            alt={`Color ${color.id}`}
+                                            className="w-full h-full object-cover"
+                                        />
+                                        <button
+                                            onClick={() => handleDeleteColor(color)}
+                                            className="absolute top-2 right-2 p-2 bg-red-600 hover:bg-red-700 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                                            title="Delete"
+                                        >
+                                            <TrashIcon />
+                                        </button>
+                                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-2 text-xs text-white">
+                                            {formatFileSize(0)} {/* Could track file size if needed */}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center py-8 text-gray-400">
+                                No colors uploaded yet
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
 
 export default AdminPanel;
+
