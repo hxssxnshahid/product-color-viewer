@@ -123,11 +123,22 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
             return;
         }
 
-        // Check file size (max 50MB before compression)
-        const maxSizeMB = 50;
-        if (file.size / (1024 * 1024) > maxSizeMB) {
-            setError(`File size exceeds ${maxSizeMB}MB. Please choose a smaller image.`);
+        // Detect if mobile device
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        
+        // Check file size (more restrictive on mobile)
+        const maxSizeMB = isMobile ? 30 : 50;
+        const fileSizeMB = file.size / (1024 * 1024);
+        
+        if (fileSizeMB > maxSizeMB) {
+            setError(`File size (${fileSizeMB.toFixed(1)}MB) exceeds ${maxSizeMB}MB limit. Please choose a smaller image.`);
             return;
+        }
+
+        // Warn about large HEIC files on mobile
+        const isHeic = /\.(heic|heif)$/i.test(file.name);
+        if (isHeic && isMobile && fileSizeMB > 10) {
+            console.warn('Large HEIC file detected on mobile device. This may take longer to process.');
         }
 
         setUploading(true);
@@ -137,12 +148,25 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
 
         try {
             // Step 1: Process image (convert HEIC and compress)
-            setUploadProgress(25);
-            const processedFile = await processImage(file, {
-                maxSizeMB: 2,
-                maxWidthOrHeight: 1920,
-                useWebWorker: true
+            setUploadProgress(10);
+            console.log('Starting image processing for:', file.name, 'Size:', file.size, 'bytes');
+            console.log('Device type:', isMobile ? 'Mobile' : 'Desktop');
+            
+            // Add timeout for processing (60 seconds)
+            const processingPromise = processImage(file, {
+                maxSizeMB: isMobile ? 1 : 2,
+                maxWidthOrHeight: isMobile ? 1400 : 1920,
+                useWebWorker: !isMobile // Disable web worker on mobile to avoid issues
             });
+            
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Image processing timed out. Please try a smaller image or different format.')), 60000);
+            });
+            
+            const processedFile = await Promise.race([processingPromise, timeoutPromise]) as File;
+            console.log('Image processed successfully:', processedFile.name, 'New size:', processedFile.size, 'bytes');
+            
+            setUploadProgress(40);
 
             // Step 2: Create unique file path
             const timestamp = Date.now();
@@ -162,10 +186,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
                 });
 
             if (uploadError) {
+                console.error('Upload error:', uploadError);
                 throw new Error(`Upload failed: ${uploadError.message}`);
             }
 
-            setUploadProgress(75);
+            setUploadProgress(70);
+
+            setUploadProgress(80);
 
             // Step 4: Get public URL
             const { data: urlData } = supabase.storage
@@ -175,6 +202,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
             if (!urlData) {
                 throw new Error('Failed to get public URL');
             }
+
+            setUploadProgress(90);
 
             // Step 5: Save to database
             const { error: dbError } = await supabase
@@ -188,6 +217,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
                 ]);
 
             if (dbError) {
+                console.error('Database error:', dbError);
                 throw new Error(`Database error: ${dbError.message}`);
             }
 
@@ -197,8 +227,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
             // Refresh colors list
             await fetchColors(selectedArticle.id);
         } catch (err) {
-            console.error('Upload error:', err);
-            setError(err instanceof Error ? err.message : 'Failed to upload image');
+            console.error('Upload error details:', err);
+            const errorMessage = err instanceof Error ? err.message : 'Failed to upload image';
+            console.error('Error message:', errorMessage);
+            setError(errorMessage);
         } finally {
             setUploading(false);
             setProcessing(false);
