@@ -2,7 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { supabase } from '../services/supabase';
 import type { Article, Color } from '../types';
-import { processImage, validateImageFile, formatFileSize } from '../utils/imageUtils';
+import { processImage, validateImageFile } from '../utils/imageUtils';
 import Spinner from './Spinner';
 import UploadIcon from './icons/UploadIcon';
 import TrashIcon from './icons/TrashIcon';
@@ -433,8 +433,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
                                         >
                                             <TrashIcon />
                                         </button>
-                                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-2 text-xs text-white">
-                                            {formatFileSize(0)} {/* Could track file size if needed */}
+                                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-2 text-xs text-white text-center">
+                                            Click to Delete
                                         </div>
                                     </div>
                                 ))}
