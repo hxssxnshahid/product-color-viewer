@@ -23,23 +23,19 @@
    - Add your environment variables in Netlify dashboard
    - Deploy!
 
-3. **Keep-Alive System**
-   - **Automatic**: Runs 3 times per week (Mon, Wed, Fri at 9:00 AM UTC)
+3. **Keep-Alive System (Optional)**
    - **Purpose**: Prevents Supabase free tier database from pausing
-   - **No Configuration Needed**: Works automatically after deployment
-   - The scheduled function makes lightweight queries to keep the database active
-   - You can verify it's working in Netlify Functions logs
+   - The keep-alive function is located at `netlify/functions/keep-alive.ts`
+   - To enable scheduled execution, configure it in the Netlify dashboard:
+     1. Go to Functions → keep-alive → Settings
+     2. Enable "Schedule" and set: `0 9 * * 1,3,5` (Mon, Wed, Fri at 9:00 AM UTC)
+   - **Cost**: Free (within Netlify free tier limits)
+   - **Note**: The app works without the keep-alive function; it's optional
 
 4. **Install Dependencies** (if needed locally)
    ```bash
    npm install
    ```
-
-### Keep-Alive Configuration
-The keep-alive system is configured in `netlify.toml`:
-- Schedule: Every Monday, Wednesday, Friday at 9:00 AM UTC
-- Function: `netlify/functions/keep-alive.ts`
-- Cost: Free (within Netlify free tier limits)
 
 ---
 

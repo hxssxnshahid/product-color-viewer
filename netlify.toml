@@ -14,15 +14,12 @@
   to = "/index.html"
   status = 200
 
-# Scheduled Functions Configuration
-# Keep-alive function runs on Mondays, Wednesdays, and Fridays at 9:00 AM UTC
-# to prevent Supabase free tier database from pausing due to inactivity
-
-[[plugins]]
-  package = "@netlify/plugin-scheduled-functions"
-
-[functions.keep-alive]
-  schedule = "0 9 * * 1,3,5"  # Every Monday, Wednesday, Friday at 9:00 AM UTC
-  # Equivalent cron schedule in text:
-  # "At 09:00 AM UTC, on Monday, Wednesday, and Friday"
+# Netlify Functions Configuration
+# Scheduled Functions will run automatically on specified schedule
+[functions]
+  directory = "netlify/functions"
+  
+# Note: Scheduled functions configuration in netlify.toml is being deprecated
+# Configure the schedule directly in the Netlify dashboard for the keep-alive function
+# Schedule: "0 9 * * 1,3,5" (Every Monday, Wednesday, Friday at 9:00 AM UTC)
 

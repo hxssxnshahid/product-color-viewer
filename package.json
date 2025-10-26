@@ -14,7 +14,6 @@
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
-    "@netlify/plugin-scheduled-functions": "^0.1.3",
     "@types/node": "^22.14.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
