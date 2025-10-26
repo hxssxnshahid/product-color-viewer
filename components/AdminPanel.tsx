@@ -15,7 +15,6 @@ interface AdminPanelProps {
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) => {
     const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
-    const [newArticleNumber, setNewArticleNumber] = useState('');
     const [newArticleName, setNewArticleName] = useState('');
     const [newArticleCategory, setNewArticleCategory] = useState<'shirts' | 'jeans' | 'trousers'>('shirts');
     const [uploading, setUploading] = useState(false);
@@ -25,7 +24,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
     const [success, setSuccess] = useState<string | null>(null);
     const [colors, setColors] = useState<Color[]>([]);
     const [loadingColors, setLoadingColors] = useState(false);
+    const [articleSearchQuery, setArticleSearchQuery] = useState('');
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Filter articles based on search query
+    const filteredArticles = articles.filter(article => {
+        if (!articleSearchQuery.trim()) return true;
+        const query = articleSearchQuery.toLowerCase();
+        return article.article_number.toLowerCase().includes(query);
+    });
 
     const fetchColors = async (articleId: number) => {
         setLoadingColors(true);
@@ -51,8 +58,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
     };
 
     const handleAddArticle = async () => {
-        if (!newArticleNumber.trim()) {
-            setError('Article number is required');
+        if (!newArticleName.trim()) {
+            setError('Article name is required');
             return;
         }
 
@@ -65,8 +72,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
                 .from('articles')
                 .insert([
                     {
-                        article_number: newArticleNumber.trim(),
-                        name: newArticleName.trim() || null,
+                        article_number: newArticleName.trim(),
                         category: newArticleCategory
                     }
                 ])
@@ -75,13 +81,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
 
             if (error) {
                 if (error.code === '23505') {
-                    setError('Article number already exists');
+                    setError('Article name already exists');
                 } else {
                     setError(`Failed to add article: ${error.message}`);
                 }
             } else {
                 setSuccess('Article added successfully!');
-                setNewArticleNumber('');
                 setNewArticleName('');
                 setNewArticleCategory('shirts');
                 refreshArticles();
@@ -279,6 +284,63 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
         }
     };
 
+    const handleDeleteArticle = async (article: Article) => {
+        if (!window.confirm(`Are you sure you want to delete article "${article.article_number}"? This will also delete all its colors permanently.`)) {
+            return;
+        }
+
+        setError(null);
+        setSuccess(null);
+        setProcessing(true);
+
+        try {
+            // First, get all colors for this article to delete from storage
+            const { data: articleColors } = await supabase
+                .from('colors')
+                .select('storage_path')
+                .eq('article_id', article.id);
+
+            // Delete from storage
+            if (articleColors && articleColors.length > 0) {
+                const paths = articleColors.map(c => c.storage_path);
+                const { error: storageError } = await supabase.storage
+                    .from('product-colors')
+                    .remove(paths);
+
+                if (storageError) {
+                    console.error('Storage delete error:', storageError);
+                    // Continue with database deletion
+                }
+            }
+
+            // Delete article (CASCADE will delete colors from DB)
+            const { error: dbError } = await supabase
+                .from('articles')
+                .delete()
+                .eq('id', article.id);
+
+            if (dbError) {
+                throw new Error(`Failed to delete article: ${dbError.message}`);
+            }
+
+            setSuccess('Article and its colors deleted successfully!');
+            
+            // Clear selected article if it was deleted
+            if (selectedArticle?.id === article.id) {
+                setSelectedArticle(null);
+                setColors([]);
+            }
+            
+            // Refresh articles list
+            refreshArticles();
+        } catch (err) {
+            console.error('Delete article error:', err);
+            setError(err instanceof Error ? err.message : 'Failed to delete article');
+        } finally {
+            setProcessing(false);
+        }
+    };
+
     return (
         <div className="max-w-7xl mx-auto">
             <div className="mb-8">
@@ -296,25 +358,18 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
                     <PlusIcon />
                     Add New Article
                 </h2>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="flex flex-col sm:flex-row gap-4">
                     <input
                         type="text"
-                        placeholder="Article Number *"
-                        value={newArticleNumber}
-                        onChange={(e) => setNewArticleNumber(e.target.value)}
-                        className="px-4 py-2 bg-gray-900/50 border border-purple-500/30 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                    <input
-                        type="text"
-                        placeholder="Article Name (optional)"
+                        placeholder="Article Name *"
                         value={newArticleName}
                         onChange={(e) => setNewArticleName(e.target.value)}
-                        className="px-4 py-2 bg-gray-900/50 border border-purple-500/30 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        className="flex-1 px-4 py-3 bg-gray-900/50 border border-purple-500/30 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
                     <select
                         value={newArticleCategory}
                         onChange={(e) => setNewArticleCategory(e.target.value as 'shirts' | 'jeans' | 'trousers')}
-                        className="px-4 py-2 bg-gray-900/50 border border-purple-500/30 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        className="w-full sm:w-48 px-4 py-3 bg-gray-900/50 border border-purple-500/30 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                     >
                         <option value="shirts">Shirts</option>
                         <option value="jeans">Jeans</option>
@@ -322,8 +377,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
                     </select>
                     <button
                         onClick={handleAddArticle}
-                        disabled={processing || !newArticleNumber.trim()}
-                        className="px-6 py-2 bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg text-white font-medium transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2"
+                        disabled={processing || !newArticleName.trim()}
+                        className="px-8 py-3 bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg text-white font-medium transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2"
                     >
                         {processing ? <Spinner small /> : <PlusIcon />}
                         Add Article
@@ -344,22 +399,60 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
 
             {/* Articles List */}
             <div className="bg-gradient-to-br from-gray-800/90 to-gray-700/90 backdrop-blur-lg rounded-2xl shadow-2xl border border-purple-500/30 p-6 mb-6">
-                <h2 className="text-xl font-bold text-white mb-4">Articles ({articles.length})</h2>
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-white">
+                        Articles ({filteredArticles.length}{articleSearchQuery && ` of ${articles.length}`})
+                    </h2>
+                </div>
+                
+                {/* Search Input */}
+                <div className="mb-4">
+                    <input
+                        type="text"
+                        placeholder="Search articles..."
+                        value={articleSearchQuery}
+                        onChange={(e) => setArticleSearchQuery(e.target.value)}
+                        className="w-full px-4 py-2 bg-gray-900/50 border border-purple-500/30 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                </div>
+                
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                    {articles.map((article) => (
-                        <button
-                            key={article.id}
-                            onClick={() => handleArticleSelect(article)}
-                            className={`p-4 bg-gradient-to-br from-gray-900/50 to-gray-800/50 rounded-xl border transition-all duration-300 transform hover:scale-105 ${
-                                selectedArticle?.id === article.id
-                                    ? 'border-purple-500 bg-purple-900/20'
-                                    : 'border-purple-500/20 hover:border-purple-500/40'
-                            }`}
-                        >
-                            <div className="font-mono text-center text-white">{article.article_number}</div>
-                            <div className="text-xs text-gray-400 mt-1 capitalize">{article.category || 'shirts'}</div>
-                        </button>
-                    ))}
+                    {filteredArticles.length === 0 ? (
+                        <div className="col-span-full text-center py-8 text-gray-400">
+                            {articleSearchQuery ? 'No articles found matching your search.' : 'No articles yet.'}
+                        </div>
+                    ) : (
+                        filteredArticles.map((article) => (
+                            <div
+                                key={article.id}
+                                className={`relative group p-4 bg-gradient-to-br from-gray-900/50 to-gray-800/50 rounded-xl border transition-all duration-300 ${
+                                    selectedArticle?.id === article.id
+                                        ? 'border-purple-500 bg-purple-900/20'
+                                        : 'border-purple-500/20 hover:border-purple-500/40'
+                                }`}
+                            >
+                                <button
+                                    onClick={() => handleArticleSelect(article)}
+                                    className="w-full text-center"
+                                >
+                                    <div className="font-mono text-white">{article.article_number}</div>
+                                    <div className="text-xs text-gray-400 mt-1 capitalize">{article.category || 'shirts'}</div>
+                                </button>
+                                
+                                {/* Delete button */}
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteArticle(article);
+                                    }}
+                                    className="absolute top-2 right-2 p-1.5 bg-red-600 hover:bg-red-700 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                                    title="Delete article"
+                                >
+                                    <TrashIcon />
+                                </button>
+                            </div>
+                        ))
+                    )}
                 </div>
             </div>
 
