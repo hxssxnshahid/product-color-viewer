@@ -11,9 +11,9 @@ export class ImageUtils {
         options: ImageCompressionOptions = {}
     ): Promise<File> {
         const {
-            maxWidth = 800,
-            maxHeight = 600,
-            quality = 0.8,
+            maxWidth = 2500,
+            maxHeight = 2500,
+            quality = 0.92,
             maxSizeKB = 500
         } = options;
 
@@ -54,14 +54,14 @@ export class ImageUtils {
                         // Check file size
                         const sizeKB = blob.size / 1024;
                         if (sizeKB > maxSizeKB) {
-                            // Recursively compress with lower quality
-                            const newQuality = quality * 0.8;
-                            if (newQuality > 0.1) {
+                            // Recursively compress with slightly lower quality (5% reduction per iteration)
+                            const newQuality = Math.max(quality - 0.05, 0.3);
+                            if (newQuality >= 0.3) {
                                 this.compressImage(file, { ...options, quality: newQuality })
                                     .then(resolve)
                                     .catch(reject);
                             } else {
-                                reject(new Error('Image too large to compress'));
+                                reject(new Error('Image too large to compress while maintaining quality'));
                             }
                         } else {
                             const compressedFile = new File([blob], file.name, {

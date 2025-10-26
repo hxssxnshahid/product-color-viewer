@@ -3,10 +3,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 import type { Article, Color } from '../types';
 import { useSearch } from '../hooks/useSearch';
+import { ImageUtils } from '../utils/imageUtils';
 import PlusIcon from './icons/PlusIcon';
 import TrashIcon from './icons/TrashIcon';
 import UploadIcon from './icons/UploadIcon';
 import Spinner from './Spinner';
+import SkeletonLoader from './SkeletonLoader';
 
 interface AdminPanelProps {
     articles: Article[];
@@ -122,33 +124,52 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || e.target.files.length === 0 || !selectedArticle) return;
         const file = e.target.files[0];
-        const fileName = `${selectedArticle.article_number}-${Date.now()}`;
         
-        setLoading(prev => ({...prev, upload: true}));
-        const { error: uploadError } = await supabase.storage.from('product-colors').upload(fileName, file);
-
-        if (uploadError) {
-            showNotification('error', `Upload failed: ${uploadError.message}`);
-            setLoading(prev => ({...prev, upload: false}));
+        // Validate file using ImageUtils
+        const validation = ImageUtils.validateImageFile(file);
+        if (!validation.valid) {
+            showNotification('error', validation.error || 'Invalid file');
+            if(fileInputRef.current) fileInputRef.current.value = "";
             return;
         }
-
-        const { data: { publicUrl } } = supabase.storage.from('product-colors').getPublicUrl(fileName);
-
-        const { error: insertError } = await supabase.from('colors').insert({
-            article_id: selectedArticle.id,
-            image_url: publicUrl,
-            storage_path: fileName
-        });
         
-        if (insertError) {
-            showNotification('error', `Failed to save color info: ${insertError.message}`);
-        } else {
-            showNotification('success', 'Color added successfully.');
-            fetchColors(selectedArticle.id);
+        try {
+            // Compress image before upload - high quality with max 500KB
+            setLoading(prev => ({...prev, upload: true}));
+            const compressedFile = await ImageUtils.compressImage(file, {
+                quality: 0.92,  // Start with high quality (92%)
+                maxSizeKB: 500   // Maximum file size - will auto-adjust if needed
+            });
+            
+            const fileName = `${selectedArticle.article_number}-${Date.now()}`;
+            const { error: uploadError } = await supabase.storage.from('product-colors').upload(fileName, compressedFile);
+
+            if (uploadError) {
+                showNotification('error', `Upload failed: ${uploadError.message}`);
+                setLoading(prev => ({...prev, upload: false}));
+                return;
+            }
+
+            const { data: { publicUrl } } = supabase.storage.from('product-colors').getPublicUrl(fileName);
+
+            const { error: insertError } = await supabase.from('colors').insert({
+                article_id: selectedArticle.id,
+                image_url: publicUrl,
+                storage_path: fileName
+            });
+            
+            if (insertError) {
+                showNotification('error', `Failed to save color info: ${insertError.message}`);
+            } else {
+                showNotification('success', 'Color added successfully.');
+                fetchColors(selectedArticle.id);
+            }
+        } catch (error) {
+            showNotification('error', `Failed to process image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setLoading(prev => ({...prev, upload: false}));
+            if(fileInputRef.current) fileInputRef.current.value = "";
         }
-        setLoading(prev => ({...prev, upload: false}));
-        if(fileInputRef.current) fileInputRef.current.value = "";
     };
     
     const handleDeleteColor = async (color: Color) => {
@@ -288,7 +309,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
                                 </label>
                                 <input id="color-upload" type="file" accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" disabled={loading['upload']} />
                              </div>
-                             {loading['colors'] ? <div className="flex justify-center"><Spinner/></div> : (
+                             {loading['colors'] ? (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                                    <SkeletonLoader type="color" count={8} />
+                                </div>
+                             ) : (
                                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                                     {colors.map(color => (
                                         <div key={color.id} className="relative group aspect-w-1 aspect-h-1 rounded-lg overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">

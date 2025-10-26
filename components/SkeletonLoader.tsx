@@ -1,58 +1,39 @@
+
 import React from 'react';
 
 interface SkeletonLoaderProps {
-    type: 'article' | 'color' | 'text' | 'button';
+    type?: 'article' | 'color';
     count?: number;
 }
 
-const SkeletonLoader: React.FC<SkeletonLoaderProps> = ({ type, count = 1 }) => {
+const SkeletonLoader: React.FC<SkeletonLoaderProps> = ({ type = 'article', count = 6 }) => {
     const renderSkeleton = () => {
-        switch (type) {
-            case 'article':
-                return (
-                    <div className="aspect-w-1 aspect-h-1 flex items-center justify-center p-4 bg-gray-800 rounded-lg shadow-md border border-gray-700 animate-pulse">
-                        <div className="h-6 w-20 bg-gray-700 rounded"></div>
-                    </div>
-                );
-            
-            case 'color':
-                return (
-                    <div className="aspect-w-1 aspect-h-1 bg-gray-800 rounded-lg overflow-hidden animate-pulse">
-                        <div className="w-full h-full bg-gray-700"></div>
-                    </div>
-                );
-            
-            case 'text':
-                return (
-                    <div className="space-y-2">
-                        <div className="h-4 bg-gray-700 rounded w-3/4 animate-pulse"></div>
-                        <div className="h-4 bg-gray-700 rounded w-1/2 animate-pulse"></div>
-                    </div>
-                );
-            
-            case 'button':
-                return (
-                    <div className="h-10 bg-gray-700 rounded-md animate-pulse"></div>
-                );
-            
-            default:
-                return <div className="h-4 bg-gray-700 rounded animate-pulse"></div>;
+        if (type === 'article') {
+            return (
+                <div className="group relative aspect-w-1 aspect-h-1 flex items-center justify-center p-4 bg-gradient-to-br from-gray-800/80 to-gray-700/80 rounded-xl shadow-lg border border-purple-500/20 animate-pulse">
+                    <div className="h-6 w-20 bg-gray-700/50 rounded"></div>
+                </div>
+            );
         }
+        
+        // Color skeleton
+        return (
+            <div className="relative aspect-w-1 aspect-h-1 bg-gradient-to-br from-gray-800/80 to-gray-700/80 rounded-xl overflow-hidden animate-pulse">
+                <div className="w-full h-full bg-gradient-to-br from-gray-700/50 to-gray-600/50"></div>
+            </div>
+        );
     };
 
-    if (count === 1) {
-        return renderSkeleton();
-    }
-
     return (
-        <div className="space-y-2">
-            {Array.from({ length: count }, (_, index) => (
-                <div key={index}>
+        <>
+            {Array.from({ length: count }).map((_, index) => (
+                <React.Fragment key={index}>
                     {renderSkeleton()}
-                </div>
+                </React.Fragment>
             ))}
-        </div>
+        </>
     );
 };
 
 export default SkeletonLoader;
+

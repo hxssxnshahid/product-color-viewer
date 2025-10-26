@@ -124,7 +124,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                     {/* Footer */}
                     <div className="mt-8 text-center">
                         <p className="text-xs text-gray-500">
-                            Product Color Viewer V 1.1
+                            Product Color Viewer V 1.3
                         </p>
                         <p className="text-xs text-gray-600 mt-1">
                             Built by Hassan

@@ -1,5 +1,48 @@
 # Deployment Guide for Product Color Viewer
 
+## Netlify Deployment
+
+### Prerequisites
+1. Netlify account
+2. Supabase project set up
+3. GitHub repository
+4. Environment variables configured
+
+### Steps
+
+1. **Prepare Environment Variables**
+   Add these in Netlify dashboard under Site Settings > Environment Variables:
+   ```
+   VITE_SUPABASE_URL=your_supabase_project_url
+   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+   ```
+
+2. **Deploy to Netlify**
+   - Connect your GitHub repository to Netlify
+   - Netlify will detect the project automatically
+   - Add your environment variables in Netlify dashboard
+   - Deploy!
+
+3. **Keep-Alive System**
+   - **Automatic**: Runs 3 times per week (Mon, Wed, Fri at 9:00 AM UTC)
+   - **Purpose**: Prevents Supabase free tier database from pausing
+   - **No Configuration Needed**: Works automatically after deployment
+   - The scheduled function makes lightweight queries to keep the database active
+   - You can verify it's working in Netlify Functions logs
+
+4. **Install Dependencies** (if needed locally)
+   ```bash
+   npm install
+   ```
+
+### Keep-Alive Configuration
+The keep-alive system is configured in `netlify.toml`:
+- Schedule: Every Monday, Wednesday, Friday at 9:00 AM UTC
+- Function: `netlify/functions/keep-alive.ts`
+- Cost: Free (within Netlify free tier limits)
+
+---
+
 ## Vercel Deployment
 
 ### Prerequisites

@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 import type { Article, Color } from '../types';
 import Spinner from './Spinner';
+import SkeletonLoader from './SkeletonLoader';
 import CloseIcon from './icons/CloseIcon';
 
 interface ColorGalleryModalProps {
@@ -67,7 +68,9 @@ const ColorGalleryModal: React.FC<ColorGalleryModalProps> = ({ article, onClose 
 
                 <div className="flex-grow p-4 overflow-y-auto">
                     {loading ? (
-                        <div className="flex justify-center items-center h-full"><Spinner /></div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                            <SkeletonLoader type="color" count={8} />
+                        </div>
                     ) : error ? (
                         <div className="text-center text-red-400">{error}</div>
                     ) : colors.length > 0 ? (

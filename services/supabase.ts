@@ -57,10 +57,7 @@ WHERE category IS NULL;
 // VITE_SUPABASE_URL=your_supabase_url
 // VITE_SUPABASE_ANON_KEY=your_anon_key
 
-// This code assumes the Supabase client is available on the window object
-// because it's loaded from a CDN in index.html.
-// @ts-ignore
-const { createClient } = window.supabase;
+import { createClient } from '@supabase/supabase-js';
 
 // Get credentials from environment variables
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;

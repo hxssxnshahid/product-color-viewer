@@ -10,6 +10,7 @@ import ColorGalleryModal from './components/ColorGalleryModal';
 import AdminPanel from './components/AdminPanel';
 import LoginPage from './components/LoginPage';
 import Spinner from './components/Spinner';
+import SkeletonLoader from './components/SkeletonLoader';
 
 const App: React.FC = () => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -124,8 +125,8 @@ const App: React.FC = () => {
                         <SearchBar onSearch={handleSearch} />
 
                         {loading ? (
-                            <div className="flex justify-center items-center h-64">
-                                <Spinner />
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+                                <SkeletonLoader type="article" count={12} />
                             </div>
                         ) : error ? (
                              <div className="text-center my-10 p-4 bg-red-900/50 border border-red-600 rounded-lg">

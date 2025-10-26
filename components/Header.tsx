@@ -18,7 +18,7 @@ const Header: React.FC<HeaderProps> = ({ isAdminView, onToggleAdminView, onLogou
                             <span className="text-white">Catalog</span>
                         </div>
                         <div className="text-xs text-gray-400 font-normal mt-1">
-                            Built by Hassan · V 1.20
+                            Built by Hassan · V 1.3
                         </div>
                     </div>
                 </div>
