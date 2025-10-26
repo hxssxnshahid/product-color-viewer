@@ -125,26 +125,32 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
         if (!e.target.files || e.target.files.length === 0 || !selectedArticle) return;
         const file = e.target.files[0];
         
+        // Reset input value to allow re-uploading the same file
+        if(fileInputRef.current) fileInputRef.current.value = "";
+        
         // Validate file using ImageUtils
         const validation = ImageUtils.validateImageFile(file);
         if (!validation.valid) {
             showNotification('error', validation.error || 'Invalid file');
-            if(fileInputRef.current) fileInputRef.current.value = "";
             return;
         }
         
         try {
             // Compress image before upload - high quality with max 500KB
             setLoading(prev => ({...prev, upload: true}));
+            
+            console.log('Starting compression for file:', file.name, file.type, file.size);
             const compressedFile = await ImageUtils.compressImage(file, {
                 quality: 0.92,  // Start with high quality (92%)
                 maxSizeKB: 500   // Maximum file size - will auto-adjust if needed
             });
+            console.log('Compression successful, size:', compressedFile.size);
             
-            const fileName = `${selectedArticle.article_number}-${Date.now()}`;
+            const fileName = `${selectedArticle.article_number}-${Date.now()}.jpg`;
             const { error: uploadError } = await supabase.storage.from('product-colors').upload(fileName, compressedFile);
 
             if (uploadError) {
+                console.error('Upload error:', uploadError);
                 showNotification('error', `Upload failed: ${uploadError.message}`);
                 setLoading(prev => ({...prev, upload: false}));
                 return;
@@ -159,16 +165,17 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ articles, refreshArticles }) =>
             });
             
             if (insertError) {
+                console.error('Insert error:', insertError);
                 showNotification('error', `Failed to save color info: ${insertError.message}`);
             } else {
                 showNotification('success', 'Color added successfully.');
                 fetchColors(selectedArticle.id);
             }
         } catch (error) {
+            console.error('Upload error:', error);
             showNotification('error', `Failed to process image: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
             setLoading(prev => ({...prev, upload: false}));
-            if(fileInputRef.current) fileInputRef.current.value = "";
         }
     };
     
